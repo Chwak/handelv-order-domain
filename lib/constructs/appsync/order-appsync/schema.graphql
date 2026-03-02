@@ -1,0 +1,125 @@
+type Query @aws_cognito_user_pools {
+  getOrder(orderId: ID!): Order
+  listOrders(
+    collectorUserId: ID
+    makerUserId: ID
+    shelfItemId: ID
+    status: OrderStatus
+    limit: Int
+    nextToken: String
+  ): OrdersConnection
+  getOrderItems(orderId: ID!, limit: Int, nextToken: String): OrderItemsConnection
+}
+
+type Mutation @aws_cognito_user_pools {
+  createOrder(input: CreateOrderInput!): Order
+  updateOrderStatus(input: UpdateOrderStatusInput!): Order
+  cancelOrder(input: CancelOrderInput!): Order
+  addShippingTracking(input: AddShippingTrackingInput!): Order
+  markOrderShipped(orderId: ID!): Order
+  markOrderDelivered(orderId: ID!): Order
+}
+
+type Subscription @aws_cognito_user_pools {
+  onOrderStatusUpdated(orderId: ID!): Order
+    @aws_subscribe(mutations: ["updateOrderStatus", "markOrderShipped", "markOrderDelivered"])
+  onOrderCreated(collectorUserId: ID, makerUserId: ID): Order
+    @aws_subscribe(mutations: ["createOrder"])
+  onOrderCanceled(orderId: ID!): Order
+    @aws_subscribe(mutations: ["cancelOrder"])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  IN_PROGRESS
+  SHIPPED
+  DELIVERED
+  COMPLETED
+  CANCELED
+}
+
+type Order {
+  orderId: ID!
+  collectorUserId: ID!
+  makerUserId: ID!
+  shelfItemId: ID!
+  status: OrderStatus!
+  totalAmount: Float!
+  shippingAddress: ShippingAddress!
+  paymentId: ID
+  items: [OrderItem!]!
+  shippingTrackingNumber: String
+  shippedAt: AWSDateTime
+  deliveredAt: AWSDateTime
+  canceledAt: AWSDateTime
+  cancelReason: String
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+type OrdersConnection {
+  items: [Order!]!
+  nextToken: String
+}
+
+type OrderItem {
+  orderId: ID!
+  itemId: ID!
+  shelfItemId: ID!
+  quantity: Int!
+  unitPrice: Float!
+  shelfItemSnapshot: ShelfItemSnapshot!
+  createdAt: AWSDateTime!
+}
+
+type OrderItemsConnection {
+  items: [OrderItem!]!
+  nextToken: String
+}
+
+type ShelfItemSnapshot {
+  title: String!
+  description: String!
+  makerName: String!
+  basePrice: Float!
+}
+
+type ShippingAddress {
+  street: String!
+  city: String!
+  state: String!
+  zip: String!
+  country: String!
+}
+
+input CreateOrderInput {
+  collectorUserId: ID!
+  makerUserId: ID!
+  shelfItemId: ID!
+  quantity: Int!
+  shippingAddress: ShippingAddressInput!
+}
+
+input ShippingAddressInput {
+  street: String!
+  city: String!
+  state: String!
+  zip: String!
+  country: String!
+}
+
+input UpdateOrderStatusInput {
+  orderId: ID!
+  status: OrderStatus!
+}
+
+input CancelOrderInput {
+  orderId: ID!
+  cancelReason: String
+}
+
+input AddShippingTrackingInput {
+  orderId: ID!
+  trackingNumber: String!
+}

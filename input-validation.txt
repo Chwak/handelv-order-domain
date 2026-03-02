@@ -1,0 +1,409 @@
+================================================================================
+ORDER DOMAIN - INPUT VALIDATION RULES
+================================================================================
+
+This document defines all input validation rules for the Order Domain GraphQL API.
+All mutations and queries must validate inputs according to these rules.
+
+================================================================================
+MUTATION: createOrder
+================================================================================
+
+Input: CreateOrderInput!
+- collectorUserId: ID! (required)
+- makerUserId: ID! (required)
+- productId: ID! (required)
+- quantity: Int! (required)
+- shippingAddress: ShippingAddressInput! (required)
+
+Validation Rules:
+1. collectorUserId:
+   - Must be a valid UUID or ID format
+   - Cannot be null or empty
+   - Must match authenticated user's ID
+
+2. makerUserId:
+   - Must be a valid UUID or ID format
+   - Cannot be null or empty
+   - Must reference an existing maker profile
+   - Cannot be the same as collectorUserId
+
+3. productId:
+   - Must be a valid UUID or ID format
+   - Cannot be null or empty
+   - Must reference an existing and active product
+   - Product must belong to the specified makerUserId
+
+4. quantity:
+   - Must be a positive integer
+   - Minimum: 1
+   - Maximum: 100 (configurable)
+   - Must not exceed product quantityAvailable (if product type is LIMITED_BATCH)
+   - Must be valid for product type (ONE_OF_ONE must be quantity 1)
+
+5. shippingAddress:
+   - street: String! (required)
+     * Minimum length: 5 characters
+     * Maximum length: 200 characters
+     * Cannot be all whitespace
+   - city: String! (required)
+     * Minimum length: 2 characters
+     * Maximum length: 100 characters
+     * Must contain only letters, spaces, hyphens, and apostrophes
+   - state: String! (required)
+     * Minimum length: 2 characters
+     * Maximum length: 100 characters
+     * Must be valid state/province code or name
+   - zip: String! (required)
+     * Minimum length: 3 characters
+     * Maximum length: 20 characters
+     * Must match postal code format for country
+   - country: String! (required)
+     * Must be valid ISO 3166-1 alpha-2 country code (2 letters, uppercase)
+
+Business Rules:
+- Product must be ACTIVE status
+- Product must have sufficient quantity available (for LIMITED_BATCH)
+- Maker must be verified (optional business rule)
+- Cannot create duplicate orders for same product within 5 minutes (idempotency)
+- Order total amount calculated from product basePrice * quantity + shipping
+
+Error Responses:
+- 400 Bad Request: Invalid input format
+- 401 Unauthorized: Not authenticated
+- 403 Forbidden: Cannot create orders for other users
+- 404 Not Found: Product or maker not found
+- 409 Conflict: Insufficient quantity available
+- 422 Unprocessable Entity: Validation failed (detailed field errors)
+
+================================================================================
+MUTATION: updateOrderStatus
+================================================================================
+
+Input: UpdateOrderStatusInput!
+- orderId: ID! (required)
+- status: OrderStatus! (required)
+
+Validation Rules:
+1. orderId:
+   - Must be a valid UUID or ID format
+   - Cannot be null or empty
+   - Must reference an existing order
+
+2. status:
+   - Must be one of: PENDING, PAID, IN_PROGRESS, SHIPPED, DELIVERED, COMPLETED, CANCELED
+   - Must be a valid state transition from current order status
+   - Cannot transition to previous states (e.g., cannot go from SHIPPED back to PAID)
+
+Business Rules:
+- Order must exist
+- User must be order collector, maker, or admin
+- Status transitions must follow valid state machine:
+  * PENDING → PAID → IN_PROGRESS → SHIPPED → DELIVERED → COMPLETED
+  * Any state → CANCELED (if not COMPLETED)
+- Cannot update status of COMPLETED or CANCELED orders
+- Payment must be authorized before transitioning to PAID
+
+Error Responses:
+- 400 Bad Request: Invalid input format
+- 401 Unauthorized: Not authenticated
+- 403 Forbidden: Cannot update order status
+- 404 Not Found: Order not found
+- 409 Conflict: Invalid status transition
+
+================================================================================
+MUTATION: cancelOrder
+================================================================================
+
+Input: CancelOrderInput!
+- orderId: ID! (required)
+- cancelReason: String (optional)
+
+Validation Rules:
+1. orderId:
+   - Must be a valid UUID or ID format
+   - Cannot be null or empty
+   - Must reference an existing order
+
+2. cancelReason (if provided):
+   - Maximum length: 500 characters
+   - Can contain letters, numbers, spaces, and common punctuation
+   - Trim leading/trailing whitespace
+
+Business Rules:
+- Order must exist and not be COMPLETED
+- User must be order collector, maker, or admin
+- Cannot cancel orders that are already CANCELED
+- If order is PAID or later, refund must be processed
+- Order status transitions to CANCELED
+
+Error Responses:
+- 400 Bad Request: Invalid input format
+- 401 Unauthorized: Not authenticated
+- 403 Forbidden: Cannot cancel order
+- 404 Not Found: Order not found
+- 409 Conflict: Order cannot be canceled (already completed or canceled)
+
+================================================================================
+MUTATION: addShippingTracking
+================================================================================
+
+Input: AddShippingTrackingInput!
+- orderId: ID! (required)
+- trackingNumber: String! (required)
+
+Validation Rules:
+1. orderId:
+   - Must be a valid UUID or ID format
+   - Cannot be null or empty
+   - Must reference an existing order
+
+2. trackingNumber:
+   - Minimum length: 5 characters
+   - Maximum length: 100 characters
+   - Must contain only alphanumeric characters, hyphens, and spaces
+   - Cannot be all whitespace
+   - Trim leading/trailing whitespace
+
+Business Rules:
+- Order must exist
+- User must be order maker or admin
+- Order status must be IN_PROGRESS or SHIPPED
+- Tracking number must be unique per order (can update existing)
+
+Error Responses:
+- 400 Bad Request: Invalid input format
+- 401 Unauthorized: Not authenticated
+- 403 Forbidden: Cannot add tracking to order
+- 404 Not Found: Order not found
+- 409 Conflict: Order status does not allow tracking update
+
+================================================================================
+MUTATION: markOrderShipped
+================================================================================
+
+Input:
+- orderId: ID! (required)
+
+Validation Rules:
+1. orderId:
+   - Must be a valid UUID or ID format
+   - Cannot be null or empty
+   - Must reference an existing order
+
+Business Rules:
+- Order must exist
+- User must be order maker or admin
+- Order status must be IN_PROGRESS
+- Shipping tracking number should be set (warning if not)
+- Order status transitions to SHIPPED
+- shippedAt timestamp is set
+
+Error Responses:
+- 400 Bad Request: Invalid orderId format
+- 401 Unauthorized: Not authenticated
+- 403 Forbidden: Cannot mark order as shipped
+- 404 Not Found: Order not found
+- 409 Conflict: Order status does not allow shipping
+
+================================================================================
+MUTATION: markOrderDelivered
+================================================================================
+
+Input:
+- orderId: ID! (required)
+
+Validation Rules:
+1. orderId:
+   - Must be a valid UUID or ID format
+   - Cannot be null or empty
+   - Must reference an existing order
+
+Business Rules:
+- Order must exist
+- User must be order collector or admin
+- Order status must be SHIPPED
+- Order status transitions to DELIVERED
+- deliveredAt timestamp is set
+
+Error Responses:
+- 400 Bad Request: Invalid orderId format
+- 401 Unauthorized: Not authenticated
+- 403 Forbidden: Cannot mark order as delivered
+- 404 Not Found: Order not found
+- 409 Conflict: Order status does not allow delivery confirmation
+
+================================================================================
+QUERY: getOrder
+================================================================================
+
+Input:
+- orderId: ID! (required)
+
+Validation Rules:
+1. orderId:
+   - Must be a valid UUID or ID format
+   - Cannot be null or empty
+
+Business Rules:
+- Order must exist
+- User must be order collector, maker, or admin
+
+Error Responses:
+- 400 Bad Request: Invalid orderId format
+- 401 Unauthorized: Not authenticated
+- 403 Forbidden: Cannot access order
+- 404 Not Found: Order not found
+
+================================================================================
+QUERY: listOrders
+================================================================================
+
+Input:
+- collectorUserId: ID (optional)
+- makerUserId: ID (optional)
+- productId: ID (optional)
+- status: OrderStatus (optional)
+- limit: Int (optional, default: 20, max: 100)
+- nextToken: String (optional)
+
+Validation Rules:
+1. collectorUserId (if provided):
+   - Must be a valid UUID or ID format
+   - User must match authenticated user's ID (unless admin)
+
+2. makerUserId (if provided):
+   - Must be a valid UUID or ID format
+   - User must match authenticated user's ID (unless admin)
+
+3. productId (if provided):
+   - Must be a valid UUID or ID format
+
+4. status (if provided):
+   - Must be one of: PENDING, PAID, IN_PROGRESS, SHIPPED, DELIVERED, COMPLETED, CANCELED
+
+5. limit:
+   - Must be between 1 and 100
+   - Default: 20 if not provided
+   - Must be a positive integer
+
+6. nextToken:
+   - Must be a valid pagination token if provided
+
+Business Rules:
+- At least one filter (collectorUserId, makerUserId, productId, status) must be provided
+- User can only filter by their own collectorUserId or makerUserId (unless admin)
+- Results are filtered by provided criteria
+
+Error Responses:
+- 400 Bad Request: Invalid input format
+- 401 Unauthorized: Not authenticated
+- 403 Forbidden: Cannot access other user's orders
+
+================================================================================
+QUERY: getOrderItems
+================================================================================
+
+Input:
+- orderId: ID! (required)
+- limit: Int (optional, default: 20, max: 100)
+- nextToken: String (optional)
+
+Validation Rules:
+1. orderId:
+   - Must be a valid UUID or ID format
+   - Cannot be null or empty
+   - Must reference an existing order
+
+2. limit:
+   - Must be between 1 and 100
+   - Default: 20 if not provided
+
+3. nextToken:
+   - Must be a valid pagination token if provided
+
+Business Rules:
+- Order must exist
+- User must be order collector, maker, or admin
+
+Error Responses:
+- 400 Bad Request: Invalid input format
+- 401 Unauthorized: Not authenticated
+- 403 Forbidden: Cannot access order items
+- 404 Not Found: Order not found
+
+================================================================================
+COMMON VALIDATION PATTERNS
+================================================================================
+
+1. ID Validation:
+   - All ID fields must be valid UUID v4 format or domain-specific ID format
+   - Cannot be null, empty, or whitespace-only
+
+2. Shipping Address Validation:
+   - Validate country code against ISO 3166-1 alpha-2 standard
+   - Validate postal code format based on country
+   - Normalize address fields (trim, title case)
+
+3. Status Transition Validation:
+   - Implement state machine validation
+   - Prevent invalid transitions
+   - Log all status changes for audit
+
+4. Quantity Validation:
+   - Ensure quantity is positive integer
+   - Check against product availability
+   - Respect product type constraints
+
+5. Authentication & Authorization:
+   - All mutations require valid authentication token
+   - Users can only access their own orders (collector or maker)
+   - Admins can access all orders
+
+6. Rate Limiting:
+   - Create order: 10 per hour per user
+   - Update order: 50 per hour per user
+   - List orders: 100 per hour per user
+
+================================================================================
+CROSS-DOMAIN VALIDATION
+================================================================================
+
+1. Product Validation:
+   - Validate productId exists and is active
+   - Verify product belongs to specified makerUserId
+   - Check product quantity availability
+   - Validate product type constraints
+
+2. Payment Validation:
+   - Payment must be authorized before order status can be PAID
+   - Payment amount must match order total
+   - Payment status must be valid
+
+3. User Validation:
+   - Validate collectorUserId and makerUserId exist
+   - Verify users are active accounts
+   - Check maker verification status (optional)
+
+================================================================================
+ERROR RESPONSE FORMAT
+================================================================================
+
+All validation errors should return structured error responses:
+
+{
+  "errors": [
+    {
+      "message": "Validation failed",
+      "extensions": {
+        "code": "VALIDATION_ERROR",
+        "field": "quantity",
+        "reason": "Quantity must be between 1 and 100"
+      }
+    }
+  ]
+}
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================

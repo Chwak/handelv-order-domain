@@ -1,0 +1,400 @@
+{
+  "Comment": "Order Domain State Machine - Handles order lifecycle: create, update status, cancel",
+  "StartAt": "RouteAction",
+  "States": {
+    "RouteAction": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.action",
+          "StringEquals": "create",
+          "Next": "ValidateOrderCreation"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "updateStatus",
+          "Next": "GetOrderForUpdate"
+        },
+        {
+          "Variable": "$.action",
+          "StringEquals": "cancel",
+          "Next": "GetOrderForCancel"
+        }
+      ],
+      "Default": "InvalidAction"
+    },
+    "InvalidAction": {
+      "Type": "Fail",
+      "Error": "InvalidAction",
+      "Cause": "Action must be create, updateStatus, or cancel"
+    },
+    "ValidateOrderCreation": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:getItem",
+      "Parameters": {
+        "TableName": "${OrdersTableName}",
+        "Key": {
+          "productId": {
+            "S.$": "$.productId"
+          }
+        }
+      },
+      "ResultPath": "$.productData",
+      "Next": "CheckQuantityAvailable"
+    },
+    "CheckQuantityAvailable": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.productData.Item.quantityAvailable.N",
+          "NumericGreaterThanEqualsPath": "$.quantity",
+          "Next": "CreateOrder"
+        }
+      ],
+      "Default": "InsufficientQuantity"
+    },
+    "InsufficientQuantity": {
+      "Type": "Fail",
+      "Error": "InsufficientQuantity",
+      "Cause": "Requested quantity exceeds available quantity"
+    },
+    "CreateOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${OrdersTableName}",
+        "Item": {
+          "orderId": {
+            "S.$": "$.orderId"
+          },
+          "collectorUserId": {
+            "S.$": "$.collectorUserId"
+          },
+          "makerUserId": {
+            "S.$": "$.makerUserId"
+          },
+          "productId": {
+            "S.$": "$.productId"
+          },
+          "status": {
+            "S": "PENDING"
+          },
+          "totalAmount": {
+            "N.$": "$.totalAmount"
+          },
+          "shippingAddress": {
+            "M.$": "$.shippingAddress"
+          },
+          "createdAt": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          "updatedAt": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": "$.orderResult",
+      "Next": "CreateOrderItems"
+    },
+    "CreateOrderItems": {
+      "Type": "Map",
+      "ItemsPath": "$.items",
+      "MaxConcurrency": 10,
+      "Iterator": {
+        "StartAt": "CreateOrderItem",
+        "States": {
+          "CreateOrderItem": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::dynamodb:putItem",
+            "Parameters": {
+              "TableName": "${OrderItemsTableName}",
+              "Item": {
+                "orderId": {
+                  "S.$": "$.orderId"
+                },
+                "itemId": {
+                  "S.$": "$.itemId"
+                },
+                "productId": {
+                  "S.$": "$.productId"
+                },
+                "quantity": {
+                  "N.$": "$.quantity"
+                },
+                "unitPrice": {
+                  "N.$": "$.unitPrice"
+                },
+                "productSnapshot": {
+                  "M.$": "$.productSnapshot"
+                }
+              }
+            },
+            "End": true
+          }
+        }
+      },
+      "Next": "OrderCreatedSuccess"
+    },
+    "OrderCreatedSuccess": {
+      "Type": "Succeed"
+    },
+    "GetOrderForUpdate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:getItem",
+      "Parameters": {
+        "TableName": "${OrdersTableName}",
+        "Key": {
+          "orderId": {
+            "S.$": "$.orderId"
+          }
+        }
+      },
+      "ResultPath": "$.orderData",
+      "Next": "ValidateStatusTransition"
+    },
+    "ValidateStatusTransition": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.orderData.Item.status.S",
+              "StringEquals": "PENDING"
+            },
+            {
+              "Variable": "$.newStatus",
+              "StringEquals": "PAID"
+            }
+          ],
+          "Next": "UpdateToPaid"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.orderData.Item.status.S",
+              "StringEquals": "PAID"
+            },
+            {
+              "Variable": "$.newStatus",
+              "StringEquals": "IN_PROGRESS"
+            }
+          ],
+          "Next": "UpdateToInProgress"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.orderData.Item.status.S",
+              "StringEquals": "IN_PROGRESS"
+            },
+            {
+              "Variable": "$.newStatus",
+              "StringEquals": "SHIPPED"
+            }
+          ],
+          "Next": "UpdateToShipped"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.orderData.Item.status.S",
+              "StringEquals": "SHIPPED"
+            },
+            {
+              "Variable": "$.newStatus",
+              "StringEquals": "COMPLETED"
+            }
+          ],
+          "Next": "UpdateToCompleted"
+        }
+      ],
+      "Default": "InvalidStatusTransition"
+    },
+    "InvalidStatusTransition": {
+      "Type": "Fail",
+      "Error": "InvalidStatusTransition",
+      "Cause": "Status transition is not allowed"
+    },
+    "UpdateToPaid": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${OrdersTableName}",
+        "Key": {
+          "orderId": {
+            "S.$": "$.orderId"
+          }
+        },
+        "UpdateExpression": "SET #status = :status, updatedAt = :updatedAt",
+        "ExpressionAttributeNames": {
+          "#status": "status"
+        },
+        "ExpressionAttributeValues": {
+          ":status": {
+            "S": "PAID"
+          },
+          ":updatedAt": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": "$.updateResult",
+      "Next": "StatusUpdateSuccess"
+    },
+    "UpdateToInProgress": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${OrdersTableName}",
+        "Key": {
+          "orderId": {
+            "S.$": "$.orderId"
+          }
+        },
+        "UpdateExpression": "SET #status = :status, updatedAt = :updatedAt",
+        "ExpressionAttributeNames": {
+          "#status": "status"
+        },
+        "ExpressionAttributeValues": {
+          ":status": {
+            "S": "IN_PROGRESS"
+          },
+          ":updatedAt": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": "$.updateResult",
+      "Next": "StatusUpdateSuccess"
+    },
+    "UpdateToShipped": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${OrdersTableName}",
+        "Key": {
+          "orderId": {
+            "S.$": "$.orderId"
+          }
+        },
+        "UpdateExpression": "SET #status = :status, shippingTrackingNumber = :tracking, shippedAt = :shippedAt, updatedAt = :updatedAt",
+        "ExpressionAttributeNames": {
+          "#status": "status"
+        },
+        "ExpressionAttributeValues": {
+          ":status": {
+            "S": "SHIPPED"
+          },
+          ":tracking": {
+            "S.$": "$.trackingNumber"
+          },
+          ":shippedAt": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":updatedAt": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": "$.updateResult",
+      "Next": "StatusUpdateSuccess"
+    },
+    "UpdateToCompleted": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${OrdersTableName}",
+        "Key": {
+          "orderId": {
+            "S.$": "$.orderId"
+          }
+        },
+        "UpdateExpression": "SET #status = :status, deliveredAt = :deliveredAt, updatedAt = :updatedAt",
+        "ExpressionAttributeNames": {
+          "#status": "status"
+        },
+        "ExpressionAttributeValues": {
+          ":status": {
+            "S": "COMPLETED"
+          },
+          ":deliveredAt": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":updatedAt": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": "$.updateResult",
+      "Next": "StatusUpdateSuccess"
+    },
+    "StatusUpdateSuccess": {
+      "Type": "Succeed"
+    },
+    "GetOrderForCancel": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:getItem",
+      "Parameters": {
+        "TableName": "${OrdersTableName}",
+        "Key": {
+          "orderId": {
+            "S.$": "$.orderId"
+          }
+        }
+      },
+      "ResultPath": "$.orderData",
+      "Next": "CanCancelOrder"
+    },
+    "CanCancelOrder": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.orderData.Item.status.S",
+          "StringEquals": "COMPLETED",
+          "Next": "CannotCancelCompletedOrder"
+        }
+      ],
+      "Default": "CancelOrder"
+    },
+    "CannotCancelCompletedOrder": {
+      "Type": "Fail",
+      "Error": "CannotCancelCompletedOrder",
+      "Cause": "Completed orders cannot be cancelled"
+    },
+    "CancelOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${OrdersTableName}",
+        "Key": {
+          "orderId": {
+            "S.$": "$.orderId"
+          }
+        },
+        "UpdateExpression": "SET #status = :status, canceledAt = :canceledAt, cancelReason = :reason, updatedAt = :updatedAt",
+        "ExpressionAttributeNames": {
+          "#status": "status"
+        },
+        "ExpressionAttributeValues": {
+          ":status": {
+            "S": "CANCELED"
+          },
+          ":canceledAt": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          ":reason": {
+            "S.$": "$.cancelReason"
+          },
+          ":updatedAt": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": "$.cancelResult",
+      "Next": "OrderCanceledSuccess"
+    },
+    "OrderCanceledSuccess": {
+      "Type": "Succeed"
+    }
+  }
+}

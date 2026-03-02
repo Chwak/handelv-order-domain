@@ -1,0 +1,130 @@
+================================================================================
+ORDER DOMAIN - EVENT CATALOG
+================================================================================
+Domain: order-domain
+Event Source: hand-made.order-domain
+Last Updated: 2026-02-16
+
+================================================================================
+PRODUCED EVENTS
+================================================================================
+
+Event: order.created.v1
+Status: ✅ IMPLEMENTED & ACTIVE
+--------------------------------------------------------------------------------
+Description:
+  Published when a new order is successfully created.
+
+Trigger: TBD
+Republish Lambda: TBD
+Payload Schema: TBD
+Consumers: product-domain, payment-domain, notification-domain
+
+--------------------------------------------------------------------------------
+
+Event: order.paid.v1
+Status: ✅ IMPLEMENTED & ACTIVE
+--------------------------------------------------------------------------------
+Description:
+  Published when an order payment is captured and order is marked PAID.
+
+Trigger: payment.captured.v1 consumer
+Republish Lambda: TBD
+Payload Schema: TBD
+Consumers: notification-domain
+
+--------------------------------------------------------------------------------
+
+Event: order.stock.confirmed.v1
+Status: ✅ IMPLEMENTED & ACTIVE
+--------------------------------------------------------------------------------
+Description:
+  Published when stock holds are confirmed after payment capture.
+
+Trigger: confirm-stock-holds lambda
+Republish Lambda: TBD
+Payload Schema: TBD
+Consumers: product-domain, notification-domain
+
+--------------------------------------------------------------------------------
+
+Event: order.status.updated.v1
+Status: 🔲 PLANNED
+--------------------------------------------------------------------------------
+Description:
+  Published when order status changes.
+
+Trigger: TBD
+Republish Lambda: TBD
+Payload Schema: TBD
+Consumers: notification-domain, payout-domain
+
+--------------------------------------------------------------------------------
+
+Event: order.completed.v1
+Status: 🔲 PLANNED
+--------------------------------------------------------------------------------
+Description:
+  Published when order is marked as completed/delivered.
+
+Trigger: TBD
+Republish Lambda: TBD
+Payload Schema: TBD
+Consumers: payout-domain, review-trust-domain, notification-domain
+
+--------------------------------------------------------------------------------
+
+Event: order.cancelled.v1
+Status: 🔲 PLANNED
+--------------------------------------------------------------------------------
+Description:
+  Published when order is cancelled by buyer or seller.
+
+Trigger: TBD
+Republish Lambda: TBD
+Payload Schema: TBD
+Consumers: product-domain, payment-domain, notification-domain
+
+--------------------------------------------------------------------------------
+
+Event: order.shipping.tracking.added.v1
+Status: 🔲 PLANNED
+--------------------------------------------------------------------------------
+Description:
+  Published when tracking number is added to order.
+
+Trigger: TBD
+Republish Lambda: TBD
+Payload Schema: TBD
+Consumers: notification-domain, communication-domain
+
+================================================================================
+CONSUMED EVENTS
+================================================================================
+
+Event: payment.authorized.v1
+Source: hand-made.payment-domain
+Status: 🔲 PLANNED
+--------------------------------------------------------------------------------
+Handler Lambda: TBD
+Action: Move order from PENDING to PROCESSING status
+
+--------------------------------------------------------------------------------
+
+Event: payment.captured.v1
+Source: hand-made.payment-domain
+Status: 🔲 PLANNED
+--------------------------------------------------------------------------------
+Handler Lambda: TBD
+Action: Confirm payment secured, notify maker to ship
+
+--------------------------------------------------------------------------------
+
+Event: product.stock.reserved.v1
+Source: hand-made.product-domain
+Status: 🔲 PLANNED
+--------------------------------------------------------------------------------
+Handler Lambda: TBD
+Action: Confirm inventory reserved for order
+
+================================================================================

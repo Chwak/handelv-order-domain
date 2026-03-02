@@ -1,0 +1,258 @@
+# Order Domain - Data Layer Design
+
+**Purpose:** Order lifecycle and transaction state management.
+
+**Database:** `order_db`
+
+**CDK Stack:** `order-stack`
+
+---
+
+## Tables
+
+### `orders`
+
+**Partition Key:** `orderId` (String, UUID)
+**Sort Key:** None
+
+**Attributes:**
+* `id` (String, PK, UUID)
+* `collector_user_id` (String) - Reference to Identity domain
+* `maker_user_id` (String) - Reference to Maker domain
+* `total_quantity` (Number) - Total quantity across all items
+* `subtotal` (Number) - Sum of all item totals (before shipping/tax)
+* `shipping_cost` (Number) - Shipping cost
+* `tax_amount` (Number) - Tax amount
+* `total_price` (Number) - `subtotal + shipping_cost + tax_amount`
+* `currency` (String) - "USD"
+* `shipping_address` (Map)
+  * `street` (String)
+  * `city` (String)
+  * `state` (String)
+  * `zip` (String)
+  * `country` (String)
+  * `name` (String) - Recipient name
+  * `phone` (String, optional)
+* `status` (String) - "pending" | "paid" | "in_progress" | "shipped" | "completed" | "canceled"
+* `payment_id` (String, optional) - Reference to Payment domain
+* `shipping_tracking_number` (String, optional)
+* `shipping_carrier` (String, optional) - "USPS" | "FedEx" | "UPS"
+* `shipped_at` (String, ISO 8601, optional)
+* `delivered_at` (String, ISO 8601, optional)
+* `canceled_at` (String, ISO 8601, optional)
+* `cancel_reason` (String, optional)
+* `created_at` (String, ISO 8601)
+* `updated_at` (String, ISO 8601)
+
+**GSI:**
+* `GSI1`: `collectorUserId` (PK), `createdAt` (SK) - Collector's order history
+  * **Use Case:** Collector's orders page
+* `GSI2`: `makerUserId` (PK), `createdAt` (SK) - Maker's orders
+  * **Use Case:** Maker's order management page
+* `GSI3`: `productId` (PK), `createdAt` (SK) - Orders by product
+  * **Use Case:** Product-level order analytics
+* `GSI4`: `status` (PK), `createdAt` (SK) - Find orders by status
+  * **Use Case:** Admin dashboard, order processing
+
+**TTL:** None
+
+---
+
+### `order_items`
+
+**Partition Key:** `orderId` (String)
+**Sort Key:** `itemId` (String)
+
+**Attributes:**
+* `order_id` (String, PK)
+* `item_id` (String, SK, UUID)
+* `product_id` (String) - Reference to Product domain
+* `product_snapshot` (Map) - Snapshot of product at order time:
+  * `title` (String)
+  * `description` (String)
+  * `price` (Number)
+  * `maker_user_id` (String)
+  * `category_id` (String)
+  * `images` (List of Strings) - Image URLs
+* `quantity` (Number)
+* `unit_price` (Number) - Price per item at order time
+* `total_price` (Number) - `quantity * unit_price`
+* `customization` (Map, optional) - Custom order details
+* `created_at` (String, ISO 8601)
+* `updated_at` (String, ISO 8601)
+
+**GSI:**
+* `GSI1`: `productId` (PK), `orderId` (SK) - Order items by product
+  * **Use Case:** Product-level order analytics
+
+**TTL:** None
+
+
+---
+
+## Order State Machine
+
+```
+pending → paid → in_progress → shipped → completed
+   ↓                                    ↓
+canceled                           canceled
+```
+
+**State Transitions:**
+* `pending` → `paid`: Payment captured
+* `paid` → `in_progress`: Maker starts working on order
+* `in_progress` → `shipped`: Maker ships order
+* `shipped` → `completed`: Order delivered (or auto-complete after X days)
+* Any state → `canceled`: Order canceled (with reason)
+
+---
+
+## Query Patterns
+
+### Get Order by ID
+**Table:** `orders`
+**Operation:** GetItem
+**Key:** `id`
+**Use Case:** Order detail page
+
+### Get Collector's Orders
+**Table:** `orders`
+**Operation:** Query on GSI1
+**Key:** `collector_user_id`
+**Use Case:** Collector's orders page
+
+### Get Maker's Orders by Status
+**Table:** `orders`
+**Operation:** Query on GSI3
+**Key:** `maker_user_id`, `status`
+**Use Case:** Maker's active orders, completed orders
+
+### Get Order Items
+**Table:** `order_items`
+**Operation:** Query
+**Key:** `order_id`
+**Use Case:** Order detail page, item-level operations
+
+---
+
+## Events Consumed
+
+This domain consumes events from other domains:
+
+* `ProductPublished` (from Product Domain)
+  * **Action:** Validate product availability for new orders
+
+* `ProductUpdated` (from Product Domain)
+  * **Action:** Validate product availability for new orders
+
+* `ProductPaused` (from Product Domain)
+  * **Action:** Block new orders for paused products
+
+* `PaymentAuthorized` (from Payment Domain)
+  * **Action:** Update order `status` to "pending" and record authorization
+
+* `PaymentCaptured` (from Payment Domain)
+  * **Action:** Update order `status` to "paid", set `payment_id`
+
+* `PaymentRefunded` (from Payment Domain)
+  * **Action:** Update order `status` to "canceled" and record refund
+
+---
+
+## Events Published
+
+This domain publishes the following events to EventBridge:
+
+* `OrderCreated`
+  * `order_id` (String)
+  * `collector_user_id` (String)
+  * `maker_user_id` (String)
+  * `product_id` (String)
+  * `quantity` (Number)
+  * `total_price` (Number)
+  * `created_at` (String, ISO 8601)
+
+* `OrderPaid`
+  * `order_id` (String)
+  * `payment_id` (String)
+  * `paid_at` (String, ISO 8601)
+
+* `OrderInProgress`
+  * `order_id` (String)
+  * `maker_user_id` (String)
+  * `started_at` (String, ISO 8601)
+
+* `OrderShipped`
+  * `order_id` (String)
+  * `tracking_number` (String)
+  * `carrier` (String)
+  * `shipped_at` (String, ISO 8601)
+
+* `OrderCompleted`
+  * `order_id` (String)
+  * `completed_at` (String, ISO 8601)
+
+* `OrderCanceled`
+  * `order_id` (String)
+  * `cancel_reason` (String)
+  * `canceled_at` (String, ISO 8601)
+
+---
+
+## Design Considerations
+
+1. **Order Snapshot:** `product_snapshot` in `order_items` preserves product details at time of order. Protects against product changes after order.
+
+2. **State Management:** Order status follows a strict state machine. Use DynamoDB conditional updates to prevent invalid transitions.
+
+3. **Quantity Management:** When order created, must atomically decrement product quantity. Use DynamoDB transactions or conditional updates.
+
+4. **Shipping Tracking:** Tracking number and carrier stored for collector visibility.
+
+5. **Multi-Item Orders:** Current design supports single-item orders. `order_items` table structure allows future expansion to multi-item orders.
+
+6. **Cancelation:** Orders can be canceled at any stage. Cancel reason stored for analytics.
+
+---
+
+## Access Patterns
+
+### High Frequency
+* Get collector's orders (collector orders page)
+* Get maker's orders (maker order management)
+* Get order by ID (order detail page)
+
+### Medium Frequency
+* Update order status (order processing)
+* Get orders by status (admin dashboard)
+
+### Low Frequency
+* Get order items (order detail page)
+
+---
+
+## Data Consistency
+
+* **Strong Consistency:** Order reads (for order detail pages)
+* **Transactional:** Order creation with product quantity update (DynamoDB transactions)
+
+---
+
+## Next Steps
+
+1. **Create CDK stack** with DynamoDB tables
+2. **Set up EventBridge rules** for consumed/published events
+3. **Create Lambda functions** for:
+   * Order creation (with product quantity check)
+   * Order status updates
+   * Order cancellation
+   * Order state machine validation
+4. **Build API Gateway** endpoints:
+   * `POST /orders`
+   * `GET /orders/{order_id}`
+   * `GET /orders/collector/{collector_user_id}`
+   * `GET /orders/maker/{maker_user_id}`
+   * `PUT /orders/{order_id}/status`
+   * `PUT /orders/{order_id}/ship`
+   * `PUT /orders/{order_id}/cancel`
+   * `GET /orders/{order_id}/items`

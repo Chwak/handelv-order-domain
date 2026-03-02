@@ -1,0 +1,225 @@
+================================================================================
+ORDER DOMAIN - WORKFLOW DOCUMENTATION
+================================================================================
+
+1. WORKFLOW
+================================================================================
+
+The Order Domain manages the order lifecycle and transaction state management. This is the core transaction engine.
+
+Main Workflows:
+
+1. Order Creation
+   - Create order for product
+   - Order includes collector, maker, product, quantity, price
+   - Order starts in PENDING status
+   - Order items snapshot product data
+
+2. Order State Machine
+   - Status transitions: pending -> paid -> in_progress -> shipped -> completed
+   - State machine enforces valid transitions
+   - Orders can be canceled from any state except completed
+
+3. Order Status Updates
+   - Update order status (via state machine)
+   - Status updates trigger events
+   - Status history tracked
+
+4. Shipping Management
+   - Add shipping tracking number
+   - Mark order as shipped
+   - Track delivery status
+
+5. Order Retrieval
+   - Get order details
+   - List orders by collector
+   - List orders by maker
+   - List orders by status
+
+6. Order Cancellation
+   - Cancel order
+   - Cancelation triggers refund process
+   - Cancelation reason required
+
+================================================================================
+2. OPERATIONS TYPE
+================================================================================
+
+Operation Types:
+- Order CRUD Operations: Create order, get order, list orders
+- Status Operations: Update order status (via state machine)
+- Shipping Operations: Add shipping tracking
+- Cancellation Operations: Cancel order
+
+API Type: GraphQL API (AppSync)
+
+================================================================================
+3. OUTPUT OF EACH OPERATION (NO CODE, JUST DESCRIPTION)
+================================================================================
+
+3.1 Create Order Operation
+   Input: Collector user ID, product ID, quantity, shipping address
+   Process:
+     - Validates product exists and is available
+     - Validates quantity doesn't exceed availability
+     - Creates order record in orders table
+     - Creates order items records with product snapshot
+     - Sets status to PENDING
+     - Triggers state machine for order workflow
+   Output:
+     - Success: Order object with order_id, collector_user_id, maker_user_id, product_id, status (PENDING), total_amount, created_at
+     - Error: Product not found, insufficient quantity, product paused, validation errors
+
+3.2 Get Order Operation
+   Input: Order ID, user ID (for authorization)
+   Process:
+     - Retrieves order from orders table
+     - Retrieves order items from order_items table
+     - Validates user is collector or maker
+   Output:
+     - Success: Order object with order_id, collector_user_id, maker_user_id, product_id, status, order_items, shipping_address, payment_id, timestamps
+     - Error: Order not found (404), unauthorized access (403)
+
+3.3 List Orders Operation
+   Input: User ID (collector or maker), status filter (optional), pagination parameters
+   Process:
+     - Queries orders table by collector_user_id or maker_user_id (GSI)
+     - Applies status filter if provided
+     - Returns paginated list of orders
+   Output:
+     - Success: List of orders with order_id, product_title, status, total_amount, created_at, pagination info
+     - Error: Invalid filters, invalid pagination parameters
+
+3.4 Update Order Status Operation
+   Input: Order ID, new status, user ID (maker for in_progress/shipped, collector for some statuses)
+   Process:
+     - Validates order exists
+     - Validates status transition is allowed by state machine
+     - Validates user has permission for status change
+     - Updates order status via state machine
+     - Updates timestamps (paid_at, in_progress_at, shipped_at, completed_at)
+   Output:
+     - Success: Updated order object with new status and timestamp
+     - Error: Invalid status transition, unauthorized access, order not found
+
+3.5 Add Shipping Tracking Operation
+   Input: Order ID, tracking number, carrier, maker user ID
+   Process:
+     - Validates order belongs to maker
+     - Validates order status allows shipping update
+     - Updates order with tracking information
+     - Sets shipped_at timestamp
+     - Updates status to SHIPPED if not already
+   Output:
+     - Success: Updated order object with tracking_number, carrier, shipped_at
+     - Error: Order not found, unauthorized access, invalid status
+
+3.6 Cancel Order Operation
+   Input: Order ID, cancel reason, user ID (collector or maker)
+   Process:
+     - Validates order exists and can be canceled (not completed)
+     - Validates user is collector or maker
+     - Updates order status to CANCELED
+     - Sets canceled_at timestamp and cancel_reason
+     - Triggers refund process (via Payment Domain event)
+   Output:
+     - Success: Updated order object with status (CANCELED), canceled_at, cancel_reason
+     - Error: Order not found, order already completed, unauthorized access
+
+================================================================================
+4. GENERATED EVENTS - WHO, HOW TO BE COMMUNICATED WITH WHICH OTHER DOMAIN
+================================================================================
+
+Events Published:
+- OrderCreated: Published when order is created
+  - Who: Order Domain
+  - How: EventBridge event bus
+  - Communicated with: Payment Domain, Notification Domain, Discovery Domain, Product Domain
+  - Purpose: Trigger payment authorization, send notifications, update discovery signals, update product availability
+  - Event Data: order_id, collector_user_id, maker_user_id, product_id, quantity, total_amount, created_at
+
+- OrderPaid: Published when payment is confirmed and order moves to paid status
+  - Who: Order Domain
+  - How: EventBridge event bus
+  - Communicated with: Notification Domain, Payout Domain, Product Domain
+  - Purpose: Notify collector and maker, start earnings accrual, update product availability
+  - Event Data: order_id, collector_user_id, maker_user_id, payment_id, paid_at
+
+- OrderInProgress: Published when maker starts working on order
+  - Who: Order Domain
+  - How: EventBridge event bus
+  - Communicated with: Notification Domain
+  - Purpose: Notify collector that order is being processed
+  - Event Data: order_id, collector_user_id, maker_user_id, in_progress_at
+
+- OrderShipped: Published when order is shipped
+  - Who: Order Domain
+  - How: EventBridge event bus
+  - Communicated with: Notification Domain
+  - Purpose: Notify collector that order has shipped
+  - Event Data: order_id, collector_user_id, tracking_number, carrier, shipped_at
+
+- OrderDelivered: Published when order is delivered
+  - Who: Order Domain
+  - How: EventBridge event bus
+  - Communicated with: Notification Domain, Review Trust Domain
+  - Purpose: Notify collector and maker, enable review creation
+  - Event Data: order_id, collector_user_id, maker_user_id, delivered_at
+
+- OrderCompleted: Published when order is completed
+  - Who: Order Domain
+  - How: EventBridge event bus
+  - Communicated with: Payout Domain, Review Trust Domain, Discovery Domain
+  - Purpose: Finalize earnings, enable review, update discovery signals
+  - Event Data: order_id, collector_user_id, maker_user_id, completed_at
+
+- OrderCanceled: Published when order is canceled
+  - Who: Order Domain
+  - How: EventBridge event bus
+  - Communicated with: Payment Domain, Notification Domain, Product Domain
+  - Purpose: Trigger refund, notify collector and maker, restore product availability
+  - Event Data: order_id, collector_user_id, maker_user_id, cancel_reason, canceled_at
+
+Events Consumed:
+- ProductPublished: From Product Domain
+  - Purpose: Validate product exists and is available when creating order
+  - Action: Validate product_id before order creation
+
+- ProductUpdated: From Product Domain
+  - Purpose: Validate product still exists and is available
+  - Action: Check product status during order creation
+
+- ProductPaused: From Product Domain
+  - Purpose: Prevent new orders for paused products
+  - Action: Reject order creation if product is paused
+
+- PaymentAuthorized: From Payment Domain
+  - Purpose: Move order to paid status when payment is authorized
+  - Action: Update order status to PAID via state machine
+
+- PaymentCaptured: From Payment Domain
+  - Purpose: Confirm payment completion
+  - Action: Update order payment status
+
+- PaymentRefunded: From Payment Domain
+  - Purpose: Handle refund completion
+  - Action: Update order status, may trigger cancellation flow
+
+Cross-Domain Communication:
+- Payment Domain: Publishes PaymentAuthorized, PaymentCaptured, PaymentRefunded events that order domain consumes; receives OrderCreated events to initiate payment
+- Notification Domain: Receives OrderCreated, OrderPaid, OrderInProgress, OrderShipped, OrderDelivered, OrderCompleted, OrderCanceled events to send notifications
+- Payout Domain: Receives OrderPaid, OrderCompleted events to calculate and accrue earnings; imports orders table via SSM
+- Discovery Domain: Receives OrderCreated, OrderCompleted events to update ranking signals
+- Product Domain: Consumes OrderCreated, OrderCanceled events to update product availability
+- Review Trust Domain: Receives OrderDelivered, OrderCompleted events to enable review creation
+
+Communication Method:
+- EventBridge: Primary method for asynchronous event communication
+- AppSync GraphQL: Direct queries from frontend
+- Step Functions: State machine for order lifecycle management
+- SSM Parameters: Exports orders table name for cross-stack references (Payout Domain)
+- DynamoDB: Direct read access granted to Payout Domain via SSM parameter import
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================

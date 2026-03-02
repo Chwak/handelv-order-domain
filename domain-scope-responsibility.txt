@@ -1,0 +1,226 @@
+================================================================================
+ORDER DOMAIN - SCOPE & RESPONSIBILITY
+================================================================================
+
+DOMAIN PURPOSE
+================================================================================
+
+The Order Domain manages the order lifecycle and transaction state management. This is the core transaction engine of the platform that orchestrates the order process from creation to completion.
+
+================================================================================
+WHAT THIS DOMAIN OWNS
+================================================================================
+
+1. Orders
+   - Order records (collector, maker, product, quantity, price)
+   - Order status (PENDING, PAID, IN_PROGRESS, SHIPPED, COMPLETED, CANCELED)
+   - Order timestamps (created_at, paid_at, shipped_at, delivered_at, completed_at)
+   - Order metadata
+
+2. Order Items
+   - Order items within orders
+   - Product snapshots at time of order
+   - Item quantities and prices
+   - Item metadata
+
+3. Shipping Information
+   - Shipping addresses
+   - Shipping tracking numbers
+   - Shipping carriers
+   - Shipping timestamps
+
+4. Order State Machine
+   - Order status transitions
+   - State machine rules
+   - Status validation
+   - Status history
+
+================================================================================
+WHAT THIS DOMAIN IS RESPONSIBLE FOR
+================================================================================
+
+1. Order Creation
+   - Creating orders from products
+   - Validating product availability
+   - Capturing product snapshots
+   - Setting initial order status
+
+2. Order Lifecycle Management
+   - Managing order status transitions
+   - Enforcing state machine rules
+   - Tracking order progress
+   - Handling order completion
+
+3. Shipping Management
+   - Adding shipping tracking
+   - Marking orders as shipped
+   - Tracking delivery status
+   - Managing shipping information
+
+4. Order Cancellation
+   - Canceling orders
+   - Handling cancellation reasons
+   - Triggering refunds
+   - Updating order status
+
+5. Order Validation
+   - Validating product availability
+   - Validating collector and maker
+   - Validating quantities
+   - Validating payment status
+
+6. Event Publishing
+   - Publishing OrderCreated events
+   - Publishing OrderPaid events
+   - Publishing OrderInProgress events
+   - Publishing OrderShipped events
+   - Publishing OrderDelivered events
+   - Publishing OrderCompleted events
+   - Publishing OrderCanceled events
+
+================================================================================
+WHAT THIS DOMAIN DOES NOT OWN
+================================================================================
+
+1. Payment Processing
+   - Payment creation (Payment Domain)
+   - Payment authorization (Payment Domain)
+   - Payment capture (Payment Domain)
+   - Refund processing (Payment Domain)
+
+2. Product Data
+   - Product details (Shelf Domain)
+   - Product availability (Shelf Domain)
+   - Product updates (Shelf Domain)
+
+3. Collector/Maker Profiles
+   - Collector profiles (Collector Domain)
+   - Maker profiles (Maker Domain)
+
+4. Reviews
+   - Review creation (Review Trust Domain)
+   - Review data (Review Trust Domain)
+
+5. Notifications
+   - Notification delivery (Notification Domain)
+   - Notification preferences (Notification Domain)
+
+6. Payouts
+   - Earnings calculation (Payout Domain)
+   - Payout processing (Payout Domain)
+
+================================================================================
+DOMAIN BOUNDARIES
+================================================================================
+
+1. Input Boundaries
+   - Receives order creation requests
+   - Receives order status update requests
+   - Receives shipping tracking updates
+   - Receives order cancellation requests
+   - Consumes ProductPublished, ProductUpdated, ProductPaused events (for validation)
+   - Consumes PaymentAuthorized, PaymentCaptured, PaymentRefunded events (for status updates)
+   - Does NOT receive payment processing requests directly
+
+2. Output Boundaries
+   - Provides order data
+   - Provides order items data
+   - Publishes order events
+   - Exports orders table name via SSM (for Payout Domain)
+   - Does NOT provide payment data
+   - Does NOT provide product details
+
+3. Data Boundaries
+   - Owns:
+      - `orders` table (order-level records)
+      - `order_items` table (item-level snapshots)
+      - `fulfillments` table (shipment and fulfillment tracking)
+   - Does NOT own:
+      - Payment processing or payment transaction records (Payment Domain)
+      - Product or maker/collector profile data (Product / Maker / Collector domains)
+   - Integration Notes:
+      - Consumes `ProductPublished`/`ProductUpdated` events for validation and `Payment*` events for status updates.
+      - Exports `orders` table name via SSM for read-only imports (e.g., Payout Domain); other domains should prefer events over direct DB reads.
+
+3. Data Boundaries
+   - Owns:
+     - `orders` table (order records and state)
+     - `fulfillments` table (shipment and fulfillment tracking)
+     - `order_items` table (line items and quantities)
+   - Does NOT own:
+     - Payment transaction records (Payment Domain)
+     - Maker payout or earnings (Payout Domain)
+     - Collector profile data (Collector Domain)
+
+4. Integration Boundaries
+   - Consumes inventory allocation and reservation events from Inventory Domain
+   - Publishes `OrderCreated` and `OrderCanceled` events for Payment and Notification domains
+   - Integrates with Fulfillment / Shipping services but does not store external carrier credentials
+   - Does NOT write to other domains' databases
+1. Orchestrate Order Process
+   - Coordinate order creation
+   - Manage order lifecycle
+   - Enforce order state machine
+   - Handle order completion
+
+2. Ensure Order Integrity
+   - Validate product availability
+   - Validate collector and maker
+   - Capture product snapshots
+   - Maintain order consistency
+
+3. Manage Order State
+   - Track order status
+   - Enforce status transitions
+   - Handle status updates
+   - Support order queries
+
+4. Support Order Features
+   - Enable shipping tracking
+   - Support order cancellation
+   - Enable order history
+   - Support order queries
+
+================================================================================
+CROSS-DOMAIN DEPENDENCIES
+================================================================================
+
+This Domain Provides To:
+- Payment Domain: OrderCreated events (to initiate payment)
+- Payout Domain: OrderPaid, OrderCompleted events (for earnings calculation), orders table (via SSM)
+- Notification Domain: OrderCreated, OrderPaid, OrderInProgress, OrderShipped, OrderDelivered, OrderCompleted, OrderCanceled events
+- Review Trust Domain: OrderDelivered, OrderCompleted events (to enable reviews)
+- Discovery Domain: OrderCreated, OrderCompleted events (for ranking signals)
+- Product Domain: OrderCreated, OrderCanceled events (to update availability)
+
+This Domain Consumes From:
+- Product Domain: ProductPublished, ProductUpdated, ProductPaused events (for validation)
+- Payment Domain: PaymentAuthorized, PaymentCaptured, PaymentRefunded events (for status updates)
+
+================================================================================
+TECHNICAL SCOPE
+================================================================================
+
+Technologies:
+- DynamoDB (orders, order_items)
+- AppSync GraphQL API
+- Lambda functions for business logic
+- Step Functions (state machine for order lifecycle)
+- EventBridge (order event bus)
+- SSM Parameters for exporting table name
+
+Data Storage:
+- orders table
+- order_items table
+
+API Type:
+- GraphQL API (AppSync)
+
+Event Communication:
+- EventBridge for publishing and consuming events
+- EventBridge event bus for order events
+- SSM Parameters for exporting orders table name
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================

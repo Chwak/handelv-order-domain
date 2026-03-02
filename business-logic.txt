@@ -1,0 +1,226 @@
+# Order Domain - Business Logic
+
+## Domain Purpose
+The Order Domain manages the order lifecycle and transaction state management. This is the core transaction engine of the platform.
+
+## Data Layer Ownership
+The Order Domain owns and manages the following DynamoDB tables:
+- orders: Main order records with lifecycle state
+- order_items: Items within each order
+
+## Business Rules
+
+### 1. Order Creation
+- Orders are created when a collector places an order for a product
+- Orders must reference valid collector, maker, and product
+- Order price is captured at time of order (product snapshot)
+- Shipping address is required for order creation
+- Orders start in "pending" status
+
+### 2. Order State Machine
+- Status flow: pending -> paid -> in_progress -> shipped -> completed
+- Orders can be canceled at any time before completion
+- Canceled orders cannot be reactivated
+- Status transitions must follow state machine rules
+
+### 3. Payment Integration
+- Orders must have payment authorized before moving to "paid" status
+- Payment_id references Payment Domain
+- Orders cannot proceed without successful payment
+- Refunds are handled by Payment Domain, but affect order status
+
+### 4. Shipping Management
+- Shipping tracking number is added when order is shipped
+- Shipped_at timestamp is recorded
+- Delivered_at timestamp is recorded (from tracking or collector confirmation)
+- Shipping address is immutable after order creation
+
+### 5. Order Items
+- Order items capture product snapshot at time of order
+- Quantity is validated against product availability
+- Unit price is captured to prevent price changes
+- Product snapshot includes title, description, maker name
+
+### 6. Cancellation Rules
+- Collectors can cancel pending orders
+- Makers can cancel before payment
+- Canceled orders must have cancel_reason
+- Canceled_at timestamp is recorded
+- Cancellation triggers refund process (Payment Domain)
+
+## Data Layer Interactions
+
+### Read Operations
+- Read order by id
+- Read orders by collector_user_id
+- Read orders by maker_user_id
+- Read orders by product_id
+- Read orders by status
+- Read order items by order_id
+
+### Write Operations
+- Create order
+- Update order status
+- Add shipping tracking information
+- Mark order as shipped
+- Mark order as delivered
+- Cancel order
+- Add order items
+
+### Data Integrity Rules
+- Orders must reference valid collector_user_id from Identity Domain
+- Orders must reference valid maker_user_id from Maker Domain
+- Orders must reference valid product_id from Product Domain
+- Order items must reference valid product_id
+- Status transitions must be valid
+- Payment_id must reference valid payment from Payment Domain
+- Quantity cannot exceed product availability
+
+## Event-Driven Communication
+
+### Events Published
+- OrderCreated: When an order is placed
+- OrderPaid: When payment is confirmed
+- OrderInProgress: When maker starts working on order
+- OrderShipped: When order is shipped
+- OrderDelivered: When order is delivered
+- OrderCompleted: When order is completed
+- OrderCanceled: When order is canceled
+
+### Events Consumed
+- ProductPublished: From Product Domain - validates product availability
+- PaymentAuthorized: From Payment Domain - moves order to paid status
+- PaymentCaptured: From Payment Domain - confirms payment
+- PaymentRefunded: From Payment Domain - may affect order status
+
+## Cross-Domain Boundaries
+
+### What This Domain Owns
+- Order lifecycle and state
+- Order items and snapshots
+- Shipping information
+- Order status transitions
+
+### What This Domain Does NOT Own
+- Payment processing (Payment Domain)
+- Product details (Product Domain)
+- Collector/Maker profiles (Collector/Maker Domains)
+- Reviews (Review & Trust Domain)
+- Notifications (Notification Domain)
+
+## Business Logic Constraints
+1. Orders cannot be created for sold out products
+2. Orders cannot be created for paused products
+3. Payment must be authorized before order can proceed
+4. Quantity must not exceed product availability
+5. Shipping address is required and immutable
+6. Order status can only move forward (except cancellation)
+7. Completed orders cannot be canceled
+8. Order items snapshot product data at time of order
+
+## Domain Structure & Implementation
+
+### Directory Structure
+The Order Domain follows a structure similar to `/Users/jred/AWS/aedcor-backend/support_backend/lib`:
+
+```
+lib/
+├── constructs/
+│   ├── dynamodb/
+│   │   └── order-tables/
+│   │       └── order-tables-construct.ts
+│   ├── lambda/
+│   │   └── order/
+│   │       ├── create-order/
+│   │       ├── update-order-status/
+│   │       ├── cancel-order/
+│   │       ├── get-order/
+│   │       ├── list-orders/
+│   │       ├── add-shipping-tracking/
+│   │       └── event-consumer/
+│   └── appsync/
+│       └── order-appsync/
+│           └── order-appsync-construct.ts
+├── functions/
+│   ├── lambda/
+│   │   └── order/
+│   │       ├── create-order/
+│   │       │   └── create-order-lambda.js
+│   │       ├── update-order-status/
+│   │       │   └── update-order-status-lambda.js
+│   │       ├── cancel-order/
+│   │       │   └── cancel-order-lambda.js
+│   │       ├── get-order/
+│   │       │   └── get-order-lambda.js
+│   │       ├── list-orders/
+│   │       │   └── list-orders-lambda.js
+│   │       ├── add-shipping-tracking/
+│   │       │   └── add-shipping-tracking-lambda.js
+│   │       └── event-consumer/
+│   │           └── event-consumer-lambda.js
+│   └── appsync-resolvers/
+│       └── order/
+│           ├── create-order-resolver.js
+│           ├── get-order-resolver.js
+│           └── list-orders-resolver.js
+└── utils/
+    ├── response-utils.ts
+    ├── validation-utils.ts
+    ├── state-machine-utils.ts
+    └── event-publisher.ts
+```
+
+### Data Layer Interaction Patterns
+
+#### Direct Data Access
+- **Orders**: Direct DynamoDB access via `orders` table using `order_id` as partition key
+- **Order Items**: Direct DynamoDB access via `order_items` table using `order_id` (PK) and `item_id` (SK)
+
+#### Query Patterns
+- **Get order**: Single item read by `order_id`
+- **List orders by collector**: GSI query by `collector_user_id`
+- **List orders by maker**: GSI query by `maker_user_id`
+- **List orders by product**: GSI query by `product_id`
+- **List orders by status**: GSI query by `status`
+- **Get order items**: Query by `order_id`
+
+#### Write Patterns
+- **Create order**: DynamoDB transaction for order + order items + product quantity update
+- **Update order status**: UpdateItem with state machine validation
+- **Cancel order**: UpdateItem with status validation and refund trigger
+- **Add shipping tracking**: UpdateItem with tracking number and timestamp
+
+### Business Logic Implementation
+
+#### State Machine Management
+- Order status transitions enforced via `state-machine-utils.ts`
+- Valid transitions: pending → paid → in_progress → shipped → completed
+- Cancellation allowed from any state except completed
+- State transitions trigger domain events
+
+#### Validation Layer
+- Order creation validates product availability (via Product Domain events)
+- Order creation validates collector exists (via Identity Domain)
+- Order creation validates maker exists (via Maker Domain)
+- Payment authorization validated before status update (via Payment Domain events)
+- Quantity validation against product availability
+
+#### Event Handling
+- **Event Consumer Lambda**: Processes events from other domains
+  - `PaymentAuthorized` → Updates order to "paid" status
+  - `PaymentCaptured` → Confirms payment completion
+  - `PaymentRefunded` → Updates order status and triggers cancellation flow
+  - `ProductUnpublished` → Prevents new orders for that product
+
+#### Data Consistency
+- Order creation uses DynamoDB transactions for atomicity
+- Order items snapshot product data at creation time
+- Status updates are idempotent with conditional writes
+- Shipping tracking updates are append-only
+
+#### Error Handling
+- Invalid product → Return 400 Bad Request
+- Insufficient quantity → Return 400 Bad Request
+- Invalid status transition → Return 400 Bad Request with current state
+- Order not found → Return 404 Not Found
+- Unauthorized access → Return 403 Forbidden

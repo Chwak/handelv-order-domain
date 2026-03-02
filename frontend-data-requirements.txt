@@ -1,0 +1,75 @@
+# Order Domain - Frontend Data Requirements
+
+## Overview
+All data that the Order Domain captures directly from frontend user interactions.
+
+**Domain:** Order Domain
+**Purpose:** Order lifecycle and transaction state management
+**Last Updated:** 2026-01-31
+
+---
+
+## 1. ORDER MANAGEMENT
+
+### 1.1 Create Order
+**Endpoint**: `POST /orders`
+**Source**: Checkout page
+
+```typescript
+{
+  productId: string,
+  quantity: number,
+  shippingAddress: {
+    name: string,
+    street: string,
+    city: string,
+    state: string,
+    zip: string,
+    country: string,
+    phone?: string,
+  },
+}
+```
+
+**Response**: Order ID, payment intent
+**Events Emitted**: `OrderCreated`
+
+### 1.2 Update Shipping Tracking
+**Endpoint**: `PUT /orders/{orderId}/shipping`
+**Source**: Maker dashboard (maker only)
+
+```typescript
+{
+  trackingNumber: string,
+  carrier: 'USPS' | 'FedEx' | 'UPS',
+}
+```
+
+**Events Emitted**: `OrderShipped`
+
+### 1.3 Cancel Order
+**Endpoint**: `PUT /orders/{orderId}/cancel`
+**Source**: Order details page
+
+```typescript
+{
+  cancelReason: string,
+}
+```
+
+**Events Emitted**: `OrderCanceled`
+
+---
+
+## API Endpoints
+
+- `POST /orders` - Create order
+- `GET /orders/{orderId}` - Get order details
+- `GET /orders/collector/{collectorUserId}` - Collector's orders
+- `GET /orders/maker/{makerUserId}` - Maker's orders
+- `PUT /orders/{orderId}/shipping` - Update shipping (maker)
+- `PUT /orders/{orderId}/cancel` - Cancel order
+
+---
+
+**Note:** See `inter-domain-data-requirements.txt` for events from other domains.

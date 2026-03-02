@@ -1,0 +1,126 @@
+# Order Domain - Inter-Domain Data Requirements
+
+## Overview
+All data that the Order Domain consumes from other domains via events.
+
+**Domain:** Order Domain  
+**Last Updated:** 2026-01-31
+
+---
+
+## 1. EVENTS CONSUMED
+
+### 1.1 From Payment Domain
+**Event**: `PaymentCaptured`
+
+```typescript
+{
+  event: "PaymentCaptured",
+  paymentId: string,
+  orderId: string,
+  amount: number,
+  capturedAt: string,
+}
+```
+
+**Action**: Update order status to 'paid'
+
+---
+
+## 2. EVENTS EMITTED
+
+### 2.1 `OrderCreated`
+**Consumers**: Product, Payment, Notification, Maker, Collector
+
+```typescript
+{
+  event: "OrderCreated",
+  orderId: string,
+  collectorUserId: string,
+  makerUserId: string,
+  productId: string,
+  quantity: number,
+  totalPrice: number,
+  createdAt: string,
+}
+```
+
+### 2.2 `OrderPaid`
+**Consumers**: Maker, Notification
+
+```typescript
+{
+  event: "OrderPaid",
+  orderId: string,
+  paymentId: string,
+  paidAt: string,
+}
+```
+
+### 2.3 `OrderShipped`
+**Consumers**: Notification, Collector
+
+```typescript
+{
+  event: "OrderShipped",
+  orderId: string,
+  trackingNumber: string,
+  carrier: string,
+  shippedAt: string,
+}
+```
+
+### 2.4 `OrderCompleted`
+**Consumers**: Maker, Payout, Review, Notification
+
+```typescript
+{
+  event: "OrderCompleted",
+  orderId: string,
+  makerUserId: string,
+  collectorUserId: string,
+  totalAmount: number,
+  completedAt: string,
+}
+```
+
+### 2.5 `OrderCanceled`
+**Consumers**: Product, Payment, Notification
+
+```typescript
+{
+  event: "OrderCanceled",
+  orderId: string,
+  productId: string,
+  quantity: number,
+  cancelReason: string,
+  canceledAt: string,
+}
+```
+
+---
+
+## DEPENDENCY MAP
+
+```
+Order Domain:
+├── Consumes From:
+│   └── Payment Domain
+│       └── PaymentCaptured
+└── Provides To:
+    ├── Product Domain
+    │   ├── OrderCreated
+    │   └── OrderCanceled
+    ├── Payment Domain
+    │   └── OrderCreated
+    ├── Payout Domain
+    │   └── OrderCompleted
+    ├── Maker Domain
+    │   ├── OrderPaid
+    │   └── OrderCompleted
+    ├── Notification Domain
+    │   ├── OrderShipped
+    │   └── OrderCompleted
+    └── Review Domain
+        └── OrderCompleted
+```
