@@ -24,7 +24,7 @@ export class ExpireStockHoldsLambdaConstruct extends Construct {
     // Lambda function to expire stock holds
     this.function = new lambdaNodeJs.NodejsFunction(this, 'ExpireStockHoldsFunction', {
       functionName: `${props.environment}-${props.regionCode}-order-domain-expire-stock-holds`,
-      entry: `${__dirname}/../../../../functions/lambda/scheduled/expire-stock-holds-lambda.ts`,
+      entry: `${__dirname}/../../../functions/lambda/scheduled/expire-stock-holds-lambda.ts`,
       handler: 'handler',
       runtime: lambda.Runtime.NODEJS_20_X,
       timeout: Duration.seconds(180), // 3 minutes for processing many holds
