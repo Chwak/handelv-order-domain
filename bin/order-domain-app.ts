@@ -6,13 +6,22 @@ import { OrderDomainPipelineStack } from "../lib/order-domain-pipeline-stack";
 
 const app = new cdk.App();
 
-const environment = app.node.tryGetContext("environment") ?? "dev";
-const regionCode = app.node.tryGetContext("regionCode") ?? "use1";
+const environment = process.env.ENVIRONMENT ?? app.node.tryGetContext("environment") ?? "dev";
+const regionCode = process.env.REGION_CODE ?? app.node.tryGetContext("regionCode") ?? "use1";
+
+// Account mapping based on environment
+const accountMapping: Record<string, string> = {
+  dev: "741429964649",
+  mimic: "329177708881",
+  prod: "021657748325",
+};
+
+const targetAccount = accountMapping[environment] ?? process.env.CDK_DEFAULT_ACCOUNT;
 
 new OrderDomainStack(app, `${environment}-${regionCode}-hand-made-order-domain-stack`, {
   env: {
-    account: process.env.CDK_DEFAULT_ACCOUNT,
-    region: process.env.CDK_DEFAULT_REGION ?? "us-east-1",
+    account: targetAccount,
+    region: process.env.AWS_REGION ?? process.env.CDK_DEFAULT_REGION ?? "us-east-1",
   },
   environment,
   regionCode,
