@@ -43,7 +43,7 @@ export class OrderDomainStack extends cdk.Stack {
     const eventBusArn = getEventBusArnFromSharedInfra(this, props.environment);
     const schemaRegistryName = ssm.StringParameter.valueForStringParameter(
       this,
-      `/${props.environment}/shared-infra/glue/schema-registry-name`,
+      `/hand-made/${props.environment}/shared-infra/schema-registry-name`,
     );
     
     // Get EventBus name from SSM for passing to lambdas
