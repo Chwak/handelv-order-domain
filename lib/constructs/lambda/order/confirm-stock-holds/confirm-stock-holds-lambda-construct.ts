@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
@@ -17,7 +18,7 @@ export interface ConfirmStockHoldsLambdaConstructProps {
 }
 
 export class ConfirmStockHoldsLambdaConstruct extends Construct {
-  public readonly function: lambda.Function;
+  public readonly function: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: ConfirmStockHoldsLambdaConstructProps) {
     super(scope, id);
@@ -73,16 +74,22 @@ export class ConfirmStockHoldsLambdaConstruct extends Construct {
       removalPolicy: props.removalPolicy ?? cdk.RemovalPolicy.DESTROY,
     });
 
-    const lambdaCodePath = path.join(__dirname, '../../../../functions/lambda/cart/confirm-stock-holds');
-    this.function = new lambda.Function(this, 'ConfirmStockHoldsFunction', {
+    const lambdaCodePath = path.join(__dirname, '../../../../functions/lambda/cart/confirm-stock-holds/confirm-stock-holds-lambda.ts');
+    this.function = new NodejsFunction(this, 'ConfirmStockHoldsFunction', {
       functionName: `${props.environment}-${props.regionCode}-order-domain-confirm-stock-holds`,
-      runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'confirm-stock-holds-lambda.handler',
-      code: lambda.Code.fromAsset(lambdaCodePath),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: 'handler',
+      entry: lambdaCodePath,
       role,
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       logGroup,
+      bundling: {
+        minify: true,
+        sourceMap: false,
+        target: 'node22',
+        externalModules: ['@aws-sdk/*'],
+      },
       environment: {
         STOCK_HOLDS_TABLE_NAME: props.stockHoldsTable.tableName,
         ORDERS_TABLE_NAME: props.ordersTable.tableName,

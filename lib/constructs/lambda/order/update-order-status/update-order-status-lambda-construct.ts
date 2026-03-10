@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
@@ -14,7 +15,7 @@ export interface UpdateOrderStatusLambdaConstructProps {
 }
 
 export class UpdateOrderStatusLambdaConstruct extends Construct {
-  public readonly function: lambda.Function;
+  public readonly function: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: UpdateOrderStatusLambdaConstructProps) {
     super(scope, id);
@@ -57,17 +58,23 @@ export class UpdateOrderStatusLambdaConstruct extends Construct {
       removalPolicy: props.removalPolicy ?? cdk.RemovalPolicy.DESTROY,
     });
 
-    const lambdaCodePath = path.join(__dirname, '../../../../functions/lambda/order/update-order-status');
-    this.function = new lambda.Function(this, 'UpdateOrderStatusFunction', {
+    const lambdaCodePath = path.join(__dirname, '../../../../functions/lambda/order/update-order-status/update-order-status-lambda.ts');
+    this.function = new NodejsFunction(this, 'UpdateOrderStatusFunction', {
       functionName: `${props.environment}-${props.regionCode}-order-domain-update-order-status-lambda`,
       runtime: lambda.Runtime.NODEJS_22_X,
-      handler: 'update-order-status-lambda.handler',
-      code: lambda.Code.fromAsset(lambdaCodePath),
+      handler: 'handler',
+      entry: lambdaCodePath,
       role,
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
       tracing: lambda.Tracing.DISABLED,
       logGroup,
+      bundling: {
+        minify: true,
+        sourceMap: false,
+        target: 'node22',
+        externalModules: ['@aws-sdk/*'],
+      },
       environment: {
         ENVIRONMENT: props.environment,
         REGION_CODE: props.regionCode,

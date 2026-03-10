@@ -32,7 +32,7 @@ const managementAccountId = "567608120268";
 const devAccountId = "741429964649";
 const mimicProdAccountId = "329177708881";
 const prodAccountId = "021657748325";
-const githubConnectionArn = "arn:aws:codestar-connections:us-east-1:567608120268:connection/ef226671-d921-4f3e-9935-c5f2549ecb0d";
+const githubConnectionArn = "arn:aws:codeconnections:us-east-1:567608120268:connection/6b01e09c-3e85-4c07-8ca7-e4313f3f1a45";
 
 new OrderDomainPipelineStack(
   app,

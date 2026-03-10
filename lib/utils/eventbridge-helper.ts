@@ -27,7 +27,7 @@ export function importEventBusFromSharedInfra(
   const eventBusName = ssm.StringParameter.fromStringParameterName(
     scope,
     'ImportedEventBusName',
-    `/hand-made/${environment}/shared-infra/event-bus-name`
+    `/${environment}/shared-infra/eventbridge/event-bus-name`
   ).stringValue;
 
   // Import EventBridge bus using the name
@@ -52,6 +52,6 @@ export function getEventBusArnFromSharedInfra(
   return ssm.StringParameter.fromStringParameterName(
     scope,
     'ImportedEventBusArn',
-    `/hand-made/${environment}/shared-infra/event-bus-arn`
+    `/${environment}/shared-infra/eventbridge/event-bus-arn`
   ).stringValue;
 }

@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
@@ -16,7 +17,7 @@ export interface PaymentCapturedConsumerLambdaConstructProps {
 }
 
 export class PaymentCapturedConsumerLambdaConstruct extends Construct {
-  public readonly function: lambda.Function;
+  public readonly function: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: PaymentCapturedConsumerLambdaConstructProps) {
     super(scope, id);
@@ -69,16 +70,22 @@ export class PaymentCapturedConsumerLambdaConstruct extends Construct {
       removalPolicy: props.removalPolicy ?? cdk.RemovalPolicy.DESTROY,
     });
 
-    const lambdaCodePath = path.join(__dirname, '../../../../functions/lambda/order/payment-captured-consumer');
-    this.function = new lambda.Function(this, 'PaymentCapturedConsumerFunction', {
+    const lambdaCodePath = path.join(__dirname, '../../../../functions/lambda/order/payment-captured-consumer/payment-captured-consumer-lambda.ts');
+    this.function = new NodejsFunction(this, 'PaymentCapturedConsumerFunction', {
       functionName: `${props.environment}-${props.regionCode}-order-domain-payment-captured-consumer`,
-      runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'payment-captured-consumer-lambda.handler',
-      code: lambda.Code.fromAsset(lambdaCodePath),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: 'handler',
+      entry: lambdaCodePath,
       role,
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       logGroup,
+      bundling: {
+        minify: true,
+        sourceMap: false,
+        target: 'node22',
+        externalModules: ['@aws-sdk/*'],
+      },
       environment: {
         ORDERS_TABLE_NAME: props.ordersTable.tableName,
         EVENT_BUS_NAME: process.env.EVENT_BUS_NAME || '',
