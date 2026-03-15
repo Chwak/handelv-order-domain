@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
 import * as path from 'path';
@@ -28,11 +29,11 @@ export interface CartOperationsLambdaConstructProps {
  * - checkout: Convert cart to order with stock holds
  */
 export class CartOperationsLambdaConstruct extends Construct {
-  public readonly addToCartFunction: lambda.Function;
-  public readonly getCartFunction: lambda.Function;
-  public readonly removeFromCartFunction: lambda.Function;
-  public readonly validateCartFunction: lambda.Function;
-  public readonly checkoutFunction: lambda.Function;
+  public readonly addToCartFunction: NodejsFunction;
+  public readonly getCartFunction: NodejsFunction;
+  public readonly removeFromCartFunction: NodejsFunction;
+  public readonly validateCartFunction: NodejsFunction;
+  public readonly checkoutFunction: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: CartOperationsLambdaConstructProps) {
     super(scope, id);
@@ -141,40 +142,53 @@ export class CartOperationsLambdaConstruct extends Construct {
     });
 
     // Add to Cart Lambda
-    this.addToCartFunction = new lambda.Function(this, 'AddToCartLambda', {
+    this.addToCartFunction = new NodejsFunction(this, 'AddToCartLambda', {
       functionName: `${props.environment}-${props.regionCode}-order-domain-add-to-cart`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'add-to-cart-lambda.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../../functions/lambda/cart/add-to-cart')),
+      handler: 'handler',
+      entry: path.join(__dirname, '../../../functions/lambda/cart/add-to-cart/add-to-cart-lambda.ts'),
       role,
       environment: commonEnv,
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       description: 'Add or update item in shopping cart',
       logGroup: addToCartLogGroup,
+      bundling: {
+        minify: true,
+        sourceMap: false,
+        target: 'node20',
+        externalModules: ['@aws-sdk/*'],
+      },
     });
 
     // Get Cart Lambda
-    this.getCartFunction = new lambda.Function(this, 'GetCartLambda', {
+    this.getCartFunction = new NodejsFunction(this, 'GetCartLambda', {
       functionName: `${props.environment}-${props.regionCode}-order-domain-get-cart`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'get-cart-lambda.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../../functions/lambda/cart/get-cart')),
+      handler: 'handler',
+      entry: path.join(__dirname, '../../../functions/lambda/cart/get-cart/get-cart-lambda.ts'),
       role,
       environment: commonEnv,
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       description: 'Retrieve shopping cart contents',
       logGroup: getCartLogGroup,
+      bundling: {
+        minify: true,
+        sourceMap: false,
+        target: 'node20',
+        externalModules: ['@aws-sdk/*'],
+      },
     });
 
     // Remove from Cart Lambda
-    this.removeFromCartFunction = new lambda.Function(this, 'RemoveFromCartLambda', {
+    this.removeFromCartFunction = new NodejsFunction(this, 'RemoveFromCartLambda', {
       functionName: `${props.environment}-${props.regionCode}-order-domain-remove-from-cart`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'remove-from-cart-lambda.handler',
-      code: lambda.Code.fromAsset(
-        path.join(__dirname, '../../../functions/lambda/cart/remove-from-cart')
+      handler: 'handler',
+      entry: path.join(
+        __dirname,
+        '../../../functions/lambda/cart/remove-from-cart/remove-from-cart-lambda.ts'
       ),
       role,
       environment: commonEnv,
@@ -182,34 +196,52 @@ export class CartOperationsLambdaConstruct extends Construct {
       memorySize: 512,
       description: 'Remove item from shopping cart',
       logGroup: removeFromCartLogGroup,
+      bundling: {
+        minify: true,
+        sourceMap: false,
+        target: 'node20',
+        externalModules: ['@aws-sdk/*'],
+      },
     });
 
     // Validate Cart Lambda
-    this.validateCartFunction = new lambda.Function(this, 'ValidateCartLambda', {
+    this.validateCartFunction = new NodejsFunction(this, 'ValidateCartLambda', {
       functionName: `${props.environment}-${props.regionCode}-order-domain-validate-cart`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'validate-cart-lambda.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../../functions/lambda/cart/validate-cart')),
+      handler: 'handler',
+      entry: path.join(__dirname, '../../../functions/lambda/cart/validate-cart/validate-cart-lambda.ts'),
       role,
       environment: commonEnv,
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       description: 'Validate cart items are available before checkout',
       logGroup: validateCartLogGroup,
+      bundling: {
+        minify: true,
+        sourceMap: false,
+        target: 'node20',
+        externalModules: ['@aws-sdk/*'],
+      },
     });
 
     // Checkout Lambda (converts cart to order)
-    this.checkoutFunction = new lambda.Function(this, 'CheckoutLambda', {
+    this.checkoutFunction = new NodejsFunction(this, 'CheckoutLambda', {
       functionName: `${props.environment}-${props.regionCode}-order-domain-checkout`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'checkout-lambda.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../../functions/lambda/cart/checkout')),
+      handler: 'handler',
+      entry: path.join(__dirname, '../../../functions/lambda/cart/checkout/checkout-lambda.ts'),
       role,
       environment: commonEnv,
       timeout: cdk.Duration.seconds(60),
       memorySize: 1024,
       description: 'Convert shopping cart to order with stock holds',
       logGroup: checkoutLogGroup,
+      bundling: {
+        minify: true,
+        sourceMap: false,
+        target: 'node20',
+        externalModules: ['@aws-sdk/*'],
+      },
     });
   }
 }
